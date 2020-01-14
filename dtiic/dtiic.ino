@@ -36,8 +36,8 @@
  * TODO: rewrite in a fully asynchronic manner with a state machine?
  */
 
-#define UART_SPEED	19200
-#define SERIAL_NO	"9999001"
+#define UART_SPEED 19200
+#define SERIAL_NO "9999001"
 //#define OLD_API		1
 
 #include <Wire.h>
@@ -47,11 +47,13 @@ void setup()
   Wire.begin();
   Wire.setClock(100000);
   Serial.begin(UART_SPEED);
+  Serial.write("9");
   pinMode(13, OUTPUT);
 }
 
-static uint8_t get_byte() {
-  while(Serial.available() == 0)
+static uint8_t get_byte()
+{
+  while (Serial.available() == 0)
     delay(5);
   return Serial.read();
 }
@@ -61,9 +63,14 @@ static inline void push_byte(uint8_t v)
   Serial.write(v);
 }
 
-static uint8_t get_i2c_byte() {
-  while(Wire.available() == 0)
+static uint8_t get_i2c_byte()
+{
+  int _ot = 100; //100*5ms 500ms I2C Read Over Time
+  while (Wire.available() == 0 && _ot > 0)
+  {
     delay(5);
+    _ot--;
+  }
   return Wire.read();
 }
 
@@ -75,9 +82,9 @@ static void invalid(int ret = 0)
   // timeout on client side is 500ms
   // try to ensure we have really received the full command
   delay(50);
-  
+
   // empty serial buffer
-  while(Serial.available())
+  while (Serial.available())
     Serial.read();
 
   // the usual error condition is signaled by a simple 0 byte
@@ -88,30 +95,39 @@ static void invalid(int ret = 0)
 static void process_iss_mode()
 {
   uint8_t mode = get_byte();
-  int freq;
+  uint32_t freq;
 
   // remove the SERIAL flag
   int serial = mode & 1;
   mode &= 0xfe;
-  
+
   get_byte();
   if (serial)
     get_byte();
-    
+
   // Note: no distinction between SW / HW I2C
-  switch(mode) {
-    case 0x20: freq = 20000;  break;
-    case 0x30: freq = 50000;  break;
-    case 0x40:
-    case 0x60: freq = 100000; break;
-    case 0x50: 
-    case 0x70: freq = 400000; break;
-    default:
-      invalid();
-      push_byte(0x05);
-      return;
+  switch (mode)
+  {
+  case 0x20:
+    freq = 20000;
+    break;
+  case 0x30:
+    freq = 50000;
+    break;
+  case 0x40:
+  case 0x60:
+    freq = 100000;
+    break;
+  case 0x50:
+  case 0x70:
+    freq = 400000;
+    break;
+  default:
+    invalid();
+    push_byte(0x05);
+    return;
   }
-  
+
   Wire.setClock(freq);
   push_byte(0xff);
   push_byte(0);
@@ -120,21 +136,22 @@ static void process_iss_mode()
 static void process_iss_subcmd()
 {
   uint8_t subcmd = get_byte();
-  switch(subcmd) {
-    case 0x01: // version
-      push_byte(0x07); // module id
-      push_byte(0x05); // firmware version (for I2C_STATUS)
-      push_byte(0x60); // iss mode (100kHz HW I2C + GPIO)
-      break;
-    case 0x03: // serial
-      Serial.print(SERIAL_NO);
-      break;
-    case 0x02:
-      process_iss_mode();
-      break;
-    default:
-      invalid();
-      break;
+  switch (subcmd)
+  {
+  case 0x01:         // version
+    push_byte(0x07); // module id
+    push_byte(0x05); // firmware version (for I2C_STATUS)
+    push_byte(0x60); // iss mode (100kHz HW I2C + GPIO)
+    break;
+  case 0x03: // serial
+    Serial.print(SERIAL_NO);
+    break;
+  case 0x02:
+    process_iss_mode();
+    break;
+  default:
+    invalid();
+    break;
   }
 }
 #else
@@ -143,25 +160,26 @@ static void process_usb_subcmd()
   uint8_t subcmd = get_byte();
   get_byte(); // data1
   get_byte(); // data2
-  switch(subcmd) {
-    case 0x01: // version
-      push_byte(0x06); // firmware version
-      break;
-    case 0x02:
-    case 0x03:
-    case 0x10:
-    case 0x11:
-      push_byte(0);
-      break;
-    case 0x12:
-      push_byte(0);
-      push_byte(0);
-      push_byte(0);
-      push_byte(0);
-      break;
-    default:
-      invalid();
-      break;
+  switch (subcmd)
+  {
+  case 0x01:         // version
+    push_byte(0x06); // firmware version
+    break;
+  case 0x02:
+  case 0x03:
+  case 0x10:
+  case 0x11:
+    push_byte(0);
+    break;
+  case 0x12:
+    push_byte(0);
+    push_byte(0);
+    push_byte(0);
+    push_byte(0);
+    break;
+  default:
+    invalid();
+    break;
   }
 }
 #endif
@@ -185,69 +203,81 @@ static void process_i2c_direct()
 
 static void process_i2c_single()
 {
-   uint8_t addr = get_byte();
-   uint8_t data = get_byte();
-   int doread = addr & 1;
-   addr >>= 1;
-   
-   if (doread) {
-     Wire.requestFrom(addr, (uint8_t)1);
-     push_byte(get_i2c_byte());
-   } else {
-     Wire.beginTransmission(addr);
-     Wire.write(data);
-     // endTransmission == 0 means success; return !0 on success
-     push_byte(!!Wire.endTransmission());
-   }
+  uint8_t addr = get_byte();
+  uint8_t data = get_byte();
+  int doread = addr & 1;
+  addr >>= 1;
+
+  if (doread)
+  {
+    Wire.requestFrom(addr, (uint8_t)1);
+    push_byte(get_i2c_byte());
+  }
+  else
+  {
+    Wire.beginTransmission(addr);
+    Wire.write(data);
+    // endTransmission == 0 means success; return !0 on success
+    push_byte(!!Wire.endTransmission());
+  }
 }
 
-static void process_i2c_addr0() {
+static void process_i2c_addr0()
+{
   uint8_t addr = get_byte();
   uint8_t count = get_byte();
   int doread = addr & 1;
   addr >>= 1;
-  
-  if (doread) {
-     Wire.requestFrom(addr, count);
-     while(count--)
-       push_byte(get_i2c_byte());
-  } else {
+
+  if (doread)
+  {
+    Wire.requestFrom(addr, count);
+    while (count--)
+      push_byte(get_i2c_byte());
+  }
+  else
+  {
     Wire.beginTransmission(addr);
-    while(count--)
+    while (count--)
       Wire.write(get_byte());
     // endTransmission == 0 means success; return !0 on success
     push_byte(!!Wire.endTransmission());
   }
 }
 
-static void process_i2c_addr12(int two = 0) {
+static void process_i2c_addr12(int two = 0)
+{
   uint8_t addr = get_byte();
   uint8_t hi = get_byte();
   uint8_t lo = two ? get_byte() : 0;
   uint8_t count = get_byte();
   int doread = addr & 1;
   addr >>= 1;
-  
+
   // send address first
   Wire.beginTransmission(addr);
   Wire.write(hi);
   if (two)
     Wire.write(lo);
-  
-  if (doread) {
-     Wire.endTransmission();
-     Wire.requestFrom(addr, count);
-     while(count--)
-       push_byte(get_i2c_byte());
-  } else {
-    while(count--)
+
+  if (doread)
+  {
+    Wire.endTransmission();
+    Wire.requestFrom(addr, count);
+    while (count--)
+      push_byte(get_i2c_byte());
+  }
+  else
+  {
+    while (count--)
       Wire.write(get_byte());
     // endTransmission == 0 means success; return !0 on success
     push_byte(!!Wire.endTransmission());
   }
 }
 
-static void process_i2c_test() {
+static void process_i2c_test()
+{
   uint8_t addr = get_byte() >> 1;
   Wire.beginTransmission(addr);
   // endTransmission == 0 means success; return !0 on success
@@ -264,7 +294,8 @@ static void process_i2c_test() {
 /*
  * FIXME: dummy
  */
-static void process_serial_io() {
+static void process_serial_io()
+{
   invalid(0xff); // failure
   push_byte(0);  // empty tx buffer
   push_byte(0);  // empty rx buffer
@@ -273,7 +304,8 @@ static void process_serial_io() {
 /*
  * FIXME: dummy
  */
-static void process_setpins() {
+static void process_setpins()
+{
   get_byte();
   push_byte(0xff); // pin status
 }
@@ -281,14 +313,16 @@ static void process_setpins() {
 /*
  * FIXME: dummy
  */
-static void process_getpins() {
+static void process_getpins()
+{
   push_byte(0xff); // pin status
 }
 
 /*
  * FIXME: dummy
  */
-static void process_getad() {
+static void process_getad()
+{
   get_byte();
   push_byte(0);
   push_byte(0);
@@ -297,32 +331,64 @@ static void process_getad() {
 
 void loop()
 {
+  if (Serial.available())
+  {
+    serialEvent();
+  }
 }
 
-void serialEvent() {
+void serialEvent()
+{
   digitalWrite(13, HIGH);
-    
+
   uint8_t cmd = get_byte();
-  
-  switch(cmd) {
-    case 0x53: process_i2c_single();  break;
-    case 0x54: process_i2c_addr0();   break;
-    case 0x55: process_i2c_addr12(0); break;
-    case 0x56: process_i2c_addr12(1); break;
-    case 0x57: process_i2c_direct();  break;
-    case 0x58: process_i2c_test();    break;
+
+  switch (cmd)
+  {
+  case 0x53:
+    process_i2c_single();
+    break;
+  case 0x54:
+    process_i2c_addr0();
+    break;
+  case 0x55:
+    process_i2c_addr12(0);
+    break;
+  case 0x56:
+    process_i2c_addr12(1);
+    break;
+  case 0x57:
+    process_i2c_direct();
+    break;
+  case 0x58:
+    process_i2c_test();
+    break;
 #ifdef OLD_API
-    case 0x5A: process_usb_subcmd();  break;
+  case 0x5A:
+    process_usb_subcmd();
+    break;
 #else
-    case 0x5A: process_iss_subcmd();  break;
-    case 0x62: process_serial_io();   break;
-    case 0x63: process_setpins();     break;
-    case 0x64: process_getpins();     break;
-    case 0x65: process_getad();       break;
+  case 0x5A:
+    process_iss_subcmd();
+    break;
+  case 0x62:
+    process_serial_io();
+    break;
+  case 0x63:
+    process_setpins();
+    break;
+  case 0x64:
+    process_getpins();
+    break;
+  case 0x65:
+    process_getad();
+    break;
 #endif
-    default:   invalid();             break;
+  default:
+    invalid();
+    break;
   }
   Serial.flush();
-  
+
   digitalWrite(13, LOW);
 }
