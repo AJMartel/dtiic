@@ -45,7 +45,7 @@
 void setup()
 {
   Wire.begin();
-  Wire.setClock(100000);
+  Wire.setClock(700000);
   Serial.begin(UART_SPEED);
   Serial.write("9");
   pinMode(13, OUTPUT);
@@ -121,6 +121,9 @@ static void process_iss_mode()
   case 0x50:
   case 0x70:
     freq = 400000;
+    break;
+  case 0x80:
+    freq = 1000000;
     break;
   default:
     invalid();
@@ -331,8 +334,7 @@ static void process_getad()
 
 void loop()
 {
-  if (Serial.available())
-  {
+  if (Serial.available()) {
     serialEvent();
   }
 }
